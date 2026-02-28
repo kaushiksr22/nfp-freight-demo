@@ -1,32 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-
-interface Shipment {
-  asn_id: string;
-  vendor_code: string;
-  vendor_name: string;
-  cartons: number;
-  volume_cbm: number;
-  weight_kg: number;
-  origin_city: string;
-  from_port: string;
-  to_port: string;
-  lane_key: string;
-  destination_id: string;
-  status: string;
-  pickup_date: string;
-}
-
-interface ScoredRate {
-  id: string;
-  forwarder_id: string;
-  forwarder_name: string;
-  charges_per_cbm: number;
-  transit_days: number;
-  reliability_pct: number;
-  score?: number;
-  recommended?: boolean;
-}
+import BookingStep1 from "./BookingStep1";
+import BookingStep2 from "./BookingStep2";
+import BookingStep3 from "./BookingStep3";
+import StepIndicator from "./StepIndicator";
+import type { Shipment, ScoredRate } from "../types/models";
 
 export default function VendorDashboard() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -34,30 +12,22 @@ export default function VendorDashboard() {
   const [loading, setLoading] = useState(true);
 
   const [rates, setRates] = useState<ScoredRate[]>([]);
-  const [showDecision, setShowDecision] = useState(false);
   const [selectedForwarder, setSelectedForwarder] = useState<string | null>(null);
 
   const [bookingLoading, setBookingLoading] = useState(false);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [fadingRows, setFadingRows] = useState<string[]>([]);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [createdBookingId, setCreatedBookingId] = useState<string>("");
+
+  // 🔥 NEW: Booking history state
+  const [history, setHistory] = useState<string[]>([]);
 
   useEffect(() => {
     api
       .getShipments("V001")
       .then((data) => setShipments(data || []))
-      .catch(() => setErrorMsg("Failed to load shipments."))
       .finally(() => setLoading(false));
   }, []);
-
-  const toggleSelection = (asnId: string) => {
-    setSelected((prev) =>
-      prev.includes(asnId)
-        ? prev.filter((id) => id !== asnId)
-        : [...prev, asnId]
-    );
-  };
 
   const selectedShipments = shipments.filter((s) =>
     selected.includes(s.asn_id)
@@ -73,74 +43,60 @@ export default function VendorDashboard() {
 
     const lane = selectedShipments[0].lane_key;
 
-    try {
-      const scoredRates = await api.getScoredRates(lane);
+    const scoredRates = await api.getScoredRates(lane);
 
-      if (!scoredRates || scoredRates.length === 0) {
-        setErrorMsg("No rates returned from backend.");
-        return;
-      }
-
-      setRates(scoredRates);
-      setSelectedForwarder(
-        scoredRates.find((r) => r.recommended)?.forwarder_id ||
+    setRates(scoredRates);
+    setSelectedForwarder(
+      scoredRates.find((r) => r.recommended)?.forwarder_id ||
         scoredRates[0].forwarder_id
-      );
-      setShowDecision(true);
-    } catch {
-      setErrorMsg("Something went wrong while fetching rates.");
-      setTimeout(() => setErrorMsg(null), 4000);
-    }
+    );
+
+    setCurrentStep(2);
+  };
+
+  // 🔥 NEW: Back handler
+  const handleBackToStep1 = () => {
+    setCurrentStep(1);
   };
 
   const handleConfirmBooking = async () => {
     if (!selectedForwarder || selectedShipments.length === 0) return;
 
     setBookingLoading(true);
-    setSuccessMsg(null);
-    setErrorMsg(null);
 
-    try {
-      const response = await api.createBooking({
-        laneKey: selectedShipments[0].lane_key,
-        asnIds: selected,
-        overrideForwarderId: selectedForwarder,
-      });
+    const response = await api.createBooking({
+      laneKey: selectedShipments[0].lane_key,
+      asnIds: selected,
+      overrideForwarderId: selectedForwarder,
+    });
 
-      const bookingId =
-        response?.booking_id || response?.bookingId || "";
+    const bookingId =
+      response?.booking_id || response?.bookingId || "";
 
-      setFadingRows(selected);
+    setCreatedBookingId(bookingId);
 
-      setTimeout(() => {
-        setShipments((prev) =>
-          prev.filter((s) => !selected.includes(s.asn_id))
-        );
-        setSelected([]);
-        setRates([]);
-        setShowDecision(false);
-        setSelectedForwarder(null);
-        setFadingRows([]);
-      }, 400);
-
-      setSuccessMsg(
-        bookingId
-          ? `Booking ${bookingId} created successfully.`
-          : "Booking created successfully."
-      );
-
-      setTimeout(() => setSuccessMsg(null), 3000);
-    } catch {
-      setErrorMsg("Booking failed. Please try again.");
-      setTimeout(() => setErrorMsg(null), 4000);
-    } finally {
-      setBookingLoading(false);
+    // 🔥 NEW: Add to booking history
+    if (bookingId) {
+      setHistory((prev) => [bookingId, ...prev]);
     }
+
+    setBookingLoading(false);
+    setCurrentStep(3);
+  };
+
+  const handleReset = async () => {
+    setSelected([]);
+    setRates([]);
+    setSelectedForwarder(null);
+    setCreatedBookingId("");
+    setCurrentStep(1);
+
+    const refreshed = await api.getShipments("V001");
+    setShipments(refreshed || []);
   };
 
   return (
     <div className="min-h-screen bg-slate-50 p-10">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-semibold text-slate-900">
           Vendor Dashboard
@@ -150,160 +106,58 @@ export default function VendorDashboard() {
         </p>
       </div>
 
-      {/* Success / Error Banner */}
-      {successMsg && (
-        <div className="mb-6 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-green-800">
-          {successMsg}
-        </div>
-      )}
-      {errorMsg && (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-800">
-          {errorMsg}
-        </div>
-      )}
+      {/* 🔥 Step Indicator */}
+      <StepIndicator currentStep={currentStep} />
 
-      {/* Shipments Table */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="p-6 text-slate-500">Loading shipments...</div>
-        ) : shipments.length === 0 ? (
-          <div className="p-6 text-slate-500">
-            No shipments ready for pickup.
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-100 text-slate-600">
-              <tr>
-                <th className="p-4"></th>
-                <th className="p-4 text-left">ASN</th>
-                <th className="p-4 text-left">Origin</th>
-                <th className="p-4 text-left">Destination</th>
-                <th className="p-4 text-left">Lane</th>
-                <th className="p-4 text-left">CBM</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shipments.map((s) => {
-                const isFading = fadingRows.includes(s.asn_id);
-                return (
-                  <tr
-                    key={s.asn_id}
-                    className={`border-t transition-all duration-300 ${
-                      isFading ? "opacity-0 scale-95" : "hover:bg-slate-50"
-                    }`}
-                  >
-                    <td className="p-4">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(s.asn_id)}
-                        onChange={() => toggleSelection(s.asn_id)}
-                      />
-                    </td>
-                    <td className="p-4">{s.asn_id}</td>
-                    <td className="p-4">{s.origin_city}</td>
-                    <td className="p-4">{s.destination_id}</td>
-                    <td className="p-4">{s.lane_key}</td>
-                    <td className="p-4">{s.volume_cbm}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Selection Panel */}
-      {selected.length > 0 && (
-        <div className="mt-8 bg-white border rounded-xl shadow-sm p-6 flex justify-between">
-          <div>
-            <p className="font-medium">
-              {selected.length} shipment(s) selected
-            </p>
-            <p className="text-sm text-slate-500">
-              Total CBM: {totalSelectedCbm}
-            </p>
-          </div>
-          <button
-            onClick={handleContinue}
-            className="bg-slate-900 text-white px-6 py-2 rounded-lg hover:bg-slate-800"
-          >
-            Continue
-          </button>
-        </div>
+      {currentStep === 1 && (
+        <BookingStep1
+          shipments={shipments}
+          loading={loading}
+          selected={selected}
+          setSelected={setSelected}
+          totalSelectedCbm={totalSelectedCbm}
+          onContinue={handleContinue}
+          fadingRows={[]}
+        />
       )}
 
-      {/* Forwarder Comparison Panel */}
-      {showDecision && rates.length > 0 && (
-        <div className="mt-8 bg-white border rounded-xl shadow-sm p-8">
-          <h2 className="text-lg font-semibold mb-6">
-            Select Forwarder
-          </h2>
+      {currentStep === 2 && (
+        <BookingStep2
+          rates={rates}
+          selectedForwarder={selectedForwarder}
+          setSelectedForwarder={setSelectedForwarder}
+          onConfirm={handleConfirmBooking}
+          onBack={handleBackToStep1}
+          bookingLoading={bookingLoading}
+        />
+      )}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            {rates.map((rate) => {
-              const isRecommended = rate.recommended;
-              const isSelected =
-                selectedForwarder === rate.forwarder_id;
+      {currentStep === 3 && (
+        <BookingStep3
+          bookingId={createdBookingId}
+          shipments={selectedShipments}
+          forwarderName={
+            rates.find((r) => r.forwarder_id === selectedForwarder)
+              ?.forwarder_name || ""
+          }
+          totalCbm={totalSelectedCbm}
+          onReset={handleReset}
+        />
+      )}
 
-              return (
-                <label
-                  key={rate.forwarder_id}
-                  className={`cursor-pointer rounded-lg border p-6 transition ${
-                    isRecommended
-                      ? "border-green-400 bg-green-50"
-                      : "border-slate-200 bg-white"
-                  } ${
-                    isSelected ? "ring-2 ring-slate-900" : ""
-                  }`}
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-medium text-slate-900">
-                        {rate.forwarder_name}
-                      </p>
-                      {isRecommended && (
-                        <p className="text-xs text-green-700 mt-1">
-                          Recommended
-                        </p>
-                      )}
-                      <p className="text-sm text-slate-600 mt-2">
-                        ${rate.charges_per_cbm} / CBM
-                      </p>
-                      <p className="text-sm text-slate-600">
-                        {rate.transit_days} days transit
-                      </p>
-                      <p className="text-sm text-slate-600">
-                        {(rate.reliability_pct * 100).toFixed(0)}% reliability
-                      </p>
-                    </div>
-
-                    <input
-                      type="radio"
-                      name="forwarder"
-                      checked={isSelected}
-                      onChange={() =>
-                        setSelectedForwarder(rate.forwarder_id)
-                      }
-                    />
-                  </div>
-                </label>
-              );
-            })}
-          </div>
-
-          <div className="flex justify-end mt-6">
-            <button
-              onClick={handleConfirmBooking}
-              disabled={bookingLoading}
-              className={`px-6 py-2 rounded-lg ${
-                bookingLoading
-                  ? "bg-slate-300 text-slate-600"
-                  : "bg-slate-900 text-white hover:bg-slate-800"
-              }`}
-            >
-              {bookingLoading ? "Confirming..." : "Confirm Booking"}
-            </button>
-          </div>
+      {/* 🔥 Booking History Panel */}
+      {history.length > 0 && (
+        <div className="mt-12 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+          <h3 className="text-lg font-semibold mb-4 text-slate-900">
+            Recent Bookings
+          </h3>
+          <ul className="space-y-2 text-sm text-slate-700">
+            {history.map((id) => (
+              <li key={id} className="border-b pb-2">
+                {id}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
