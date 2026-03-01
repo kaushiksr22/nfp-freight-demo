@@ -1,3 +1,4 @@
+console.log("VENDOR DASHBOARD LOADED");
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import BookingStep1 from "./BookingStep1";
@@ -7,7 +8,8 @@ import StepIndicator from "./StepIndicator";
 import type { Shipment, ScoredRate } from "../types/models";
 
 export default function VendorDashboard() {
-  const vendor = JSON.parse(localStorage.getItem("vendor") || "{}");
+  const storedUser = localStorage.getItem("vendor");
+  const user = storedUser ? JSON.parse(storedUser) : null;
 
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -23,20 +25,25 @@ export default function VendorDashboard() {
 
   const [history, setHistory] = useState<string[]>([]);
 
-  useEffect(() => {
-    const storedVendor = localStorage.getItem("vendor");
-  
-    if (!storedVendor) {
+  // ✅ ROLE-AWARE SHIPMENT FETCH
+  const fetchShipments = async () => {
+    if (!user) {
       setLoading(false);
       return;
     }
-  
-    const vendor = JSON.parse(storedVendor);
-  
-    api
-      .getShipments(vendor.vendor_code)
-      .then((data) => setShipments(data || []))
-      .finally(() => setLoading(false));
+
+    setLoading(true);
+
+    const vendorCode =
+      user.role === "vendor" ? user.vendor_code : "";
+
+    const data = await api.getShipments(vendorCode);
+    setShipments(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchShipments();
   }, []);
 
   const selectedShipments = shipments.filter((s) =>
@@ -99,8 +106,7 @@ export default function VendorDashboard() {
     setCreatedBookingId("");
     setCurrentStep(1);
 
-    const refreshed = await api.getShipments(vendor.vendor_code);
-    setShipments(refreshed || []);
+    await fetchShipments();
   };
 
   const handleLogout = () => {
@@ -114,7 +120,9 @@ export default function VendorDashboard() {
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-semibold text-slate-900">
-            {vendor.vendor_name || "Vendor"} Dashboard
+            {user?.role === "admin"
+              ? "Admin Dashboard"
+              : `${user?.vendor_name || "Vendor"} Dashboard`}
           </h1>
           <p className="text-slate-500 mt-1">
             Shipments ready for pickup

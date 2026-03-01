@@ -13,8 +13,8 @@ class ShipmentController(
 
     @GetMapping("/api/shipments")
     fun getShipments(
-        @RequestParam vendorCode: String
-    ): List<Shipment>? {
+        @RequestParam(required = false) vendorCode: String?
+    ): List<Shipment> {
         return shipmentService.getShipments(vendorCode)
     }
 }

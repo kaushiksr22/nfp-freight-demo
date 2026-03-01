@@ -23,8 +23,13 @@ export const api = {
   login: (email: string, password: string) =>
     request("/login?email=" + email + "&password=" + password),
 
-  getShipments: (vendorCode: string) =>
-    request(`/shipments?vendorCode=${vendorCode}`),
+  getShipments: (vendorCode?: string) => {
+    if (!vendorCode) {
+      return request(`/shipments`);
+    }
+  
+    return request(`/shipments?vendorCode=${vendorCode}`);
+  },
 
   getRates: (laneKey: string) =>
     request(`/rates?lane_key=${laneKey}`),
