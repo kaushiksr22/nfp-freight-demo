@@ -7,6 +7,8 @@ import StepIndicator from "./StepIndicator";
 import type { Shipment, ScoredRate } from "../types/models";
 
 export default function VendorDashboard() {
+  const vendor = JSON.parse(localStorage.getItem("vendor") || "{}");
+
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,12 +21,20 @@ export default function VendorDashboard() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [createdBookingId, setCreatedBookingId] = useState<string>("");
 
-  // 🔥 NEW: Booking history state
   const [history, setHistory] = useState<string[]>([]);
 
   useEffect(() => {
+    const storedVendor = localStorage.getItem("vendor");
+  
+    if (!storedVendor) {
+      setLoading(false);
+      return;
+    }
+  
+    const vendor = JSON.parse(storedVendor);
+  
     api
-      .getShipments("V001")
+      .getShipments(vendor.vendor_code)
       .then((data) => setShipments(data || []))
       .finally(() => setLoading(false));
   }, []);
@@ -54,7 +64,6 @@ export default function VendorDashboard() {
     setCurrentStep(2);
   };
 
-  // 🔥 NEW: Back handler
   const handleBackToStep1 = () => {
     setCurrentStep(1);
   };
@@ -75,7 +84,6 @@ export default function VendorDashboard() {
 
     setCreatedBookingId(bookingId);
 
-    // 🔥 NEW: Add to booking history
     if (bookingId) {
       setHistory((prev) => [bookingId, ...prev]);
     }
@@ -91,22 +99,36 @@ export default function VendorDashboard() {
     setCreatedBookingId("");
     setCurrentStep(1);
 
-    const refreshed = await api.getShipments("V001");
+    const refreshed = await api.getShipments(vendor.vendor_code);
     setShipments(refreshed || []);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("vendor");
+    window.location.reload();
   };
 
   return (
     <div className="min-h-screen bg-slate-50 p-10">
-      <div className="mb-8">
-        <h1 className="text-3xl font-semibold text-slate-900">
-          Vendor Dashboard
-        </h1>
-        <p className="text-slate-500 mt-1">
-          Shipments ready for pickup
-        </p>
+      {/* Header */}
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-semibold text-slate-900">
+            {vendor.vendor_name || "Vendor"} Dashboard
+          </h1>
+          <p className="text-slate-500 mt-1">
+            Shipments ready for pickup
+          </p>
+        </div>
+
+        <button
+          onClick={handleLogout}
+          className="text-sm text-slate-500 hover:text-slate-900"
+        >
+          Logout
+        </button>
       </div>
 
-      {/* 🔥 Step Indicator */}
       <StepIndicator currentStep={currentStep} />
 
       {currentStep === 1 && (
@@ -145,7 +167,7 @@ export default function VendorDashboard() {
         />
       )}
 
-      {/* 🔥 Booking History Panel */}
+      {/* Booking History */}
       {history.length > 0 && (
         <div className="mt-12 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
           <h3 className="text-lg font-semibold mb-4 text-slate-900">
