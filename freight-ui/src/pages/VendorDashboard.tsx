@@ -1,5 +1,5 @@
 console.log("VENDOR DASHBOARD LOADED");
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import BookingStep1 from "./BookingStep1";
 import BookingStep2 from "./BookingStep2";
@@ -7,9 +7,18 @@ import BookingStep3 from "./BookingStep3";
 import StepIndicator from "./StepIndicator";
 import type { Shipment, ScoredRate } from "../types/models";
 
+type StoredUser = {
+  id?: number;
+  email?: string;
+  role?: "vendor" | "admin";
+  vendor_code?: string;
+  vendor_name?: string;
+  program_type?: string;
+};
+
 export default function VendorDashboard() {
   const storedUser = localStorage.getItem("vendor");
-  const user = storedUser ? JSON.parse(storedUser) : null;
+  const user: StoredUser | null = storedUser ? JSON.parse(storedUser) : null;
 
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -23,44 +32,72 @@ export default function VendorDashboard() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [createdBookingId, setCreatedBookingId] = useState<string>("");
 
-  const [history, setHistory] = useState<string[]>([]);
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
 
-  // ✅ ROLE-AWARE SHIPMENT FETCH
+  // If no user, avoid crashing — App.tsx should redirect to Login anyway
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-10">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 text-slate-700">
+          You are logged out. Please refresh and login again.
+        </div>
+      </div>
+    );
+  }
+
+  const vendorCodeForShipments = user.role === "vendor" ? (user.vendor_code || "") : "";
+
+  const selectedShipments = useMemo(
+    () => shipments.filter((s) => selected.includes(s.asn_id)),
+    [shipments, selected]
+  );
+
+  const totalSelectedCbm = useMemo(() => {
+    return selectedShipments.reduce(
+      (sum, s) => sum + Number(s.volume_cbm || 0),
+      0
+    );
+  }, [selectedShipments]);
+
   const fetchShipments = async () => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
-
-    const vendorCode =
-      user.role === "vendor" ? user.vendor_code : "";
-
-    const data = await api.getShipments(vendorCode);
-    setShipments(data || []);
-    setLoading(false);
+    try {
+      const data = await api.getShipments(vendorCodeForShipments);
+      setShipments(data || []);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const fetchBookings = async () => {
+    // For vendor: filter by vendor_code; for admin: pass ""
+    const vendorCodeForBookings = user.role === "vendor" ? (user.vendor_code || "") : "";
+    setBookingsLoading(true);
+    try {
+      const data = await api.getBookings(vendorCodeForBookings);
+      setBookings(data || []);
+    } catch {
+      setBookings([]); // don’t crash UI if bookings endpoint fails
+    } finally {
+      setBookingsLoading(false);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
     fetchShipments();
+    fetchBookings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const selectedShipments = shipments.filter((s) =>
-    selected.includes(s.asn_id)
-  );
-
-  const totalSelectedCbm = selectedShipments.reduce(
-    (sum, s) => sum + Number(s.volume_cbm || 0),
-    0
-  );
 
   const handleContinue = async () => {
     if (selectedShipments.length === 0) return;
 
     const lane = selectedShipments[0].lane_key;
-
     const scoredRates = await api.getScoredRates(lane);
+
+    if (!scoredRates || scoredRates.length === 0) return;
 
     setRates(scoredRates);
     setSelectedForwarder(
@@ -80,23 +117,24 @@ export default function VendorDashboard() {
 
     setBookingLoading(true);
 
-    const response = await api.createBooking({
-      laneKey: selectedShipments[0].lane_key,
-      asnIds: selected,
-      overrideForwarderId: selectedForwarder,
-    });
+    try {
+      const response = await api.createBooking({
+        laneKey: selectedShipments[0].lane_key,
+        asnIds: selected,
+        overrideForwarderId: selectedForwarder,
+      });
 
-    const bookingId =
-      response?.booking_id || response?.bookingId || "";
+      const bookingId = response?.booking_id || response?.bookingId || "";
+      setCreatedBookingId(bookingId);
 
-    setCreatedBookingId(bookingId);
+      setCurrentStep(3);
 
-    if (bookingId) {
-      setHistory((prev) => [bookingId, ...prev]);
+      // Refresh both shipments + bookings after booking
+      await fetchShipments();
+      await fetchBookings();
+    } finally {
+      setBookingLoading(false);
     }
-
-    setBookingLoading(false);
-    setCurrentStep(3);
   };
 
   const handleReset = async () => {
@@ -107,6 +145,7 @@ export default function VendorDashboard() {
     setCurrentStep(1);
 
     await fetchShipments();
+    await fetchBookings();
   };
 
   const handleLogout = () => {
@@ -120,13 +159,11 @@ export default function VendorDashboard() {
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-semibold text-slate-900">
-            {user?.role === "admin"
+            {user.role === "admin"
               ? "Admin Dashboard"
-              : `${user?.vendor_name || "Vendor"} Dashboard`}
+              : `${user.vendor_name || "Vendor"} Dashboard`}
           </h1>
-          <p className="text-slate-500 mt-1">
-            Shipments ready for pickup
-          </p>
+          <p className="text-slate-500 mt-1">Shipments ready for pickup</p>
         </div>
 
         <button
@@ -175,21 +212,32 @@ export default function VendorDashboard() {
         />
       )}
 
-      {/* Booking History */}
-      {history.length > 0 && (
-        <div className="mt-12 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-          <h3 className="text-lg font-semibold mb-4 text-slate-900">
-            Recent Bookings
-          </h3>
+      {/* Booking History (from backend) */}
+      <div className="mt-12 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+        <h3 className="text-lg font-semibold mb-4 text-slate-900">
+          Booking History
+        </h3>
+
+        {bookingsLoading ? (
+          <div className="text-sm text-slate-500">Loading bookings...</div>
+        ) : bookings.length === 0 ? (
+          <div className="text-sm text-slate-500">No bookings found.</div>
+        ) : (
           <ul className="space-y-2 text-sm text-slate-700">
-            {history.map((id) => (
-              <li key={id} className="border-b pb-2">
-                {id}
+            {bookings.map((b, idx) => (
+              <li key={b.booking_id || idx} className="border-b pb-2">
+                <div className="font-medium">
+                  {b.booking_id || "Booking"}
+                </div>
+                <div className="text-slate-500">
+                  Status: {b.status || "-"} | Lane: {b.lane_key || "-"} | ASN(s):{" "}
+                  {b.asn_ids || "-"}
+                </div>
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

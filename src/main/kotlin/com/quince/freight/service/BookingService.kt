@@ -1,12 +1,11 @@
 package com.quince.freight.service
 
 import com.quince.freight.model.BookingRequest
-import com.quince.freight.model.Shipment
 import com.quince.freight.model.ScoredRate
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import reactor.netty.http.client.HttpClient
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -35,13 +34,11 @@ class BookingService(
             throw RuntimeException("No valid ASNs found")
         }
 
-        // Validate same lane
         val laneKeys = shipments.map { it.lane_key }.distinct()
         if (laneKeys.size > 1) {
             throw RuntimeException("ASNs must belong to same lane")
         }
 
-        // Validate pickup window <= 3 days
         val formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy")
         val pickupDates = shipments.map {
             LocalDate.parse(it.pickup_date, formatter)
@@ -67,31 +64,49 @@ class BookingService(
             config?.reliability_weight ?: 3
         )
 
-        val selectedRate: ScoredRate = if (request.overrideForwarderId != null) {
-            scoredRates.first {
-                it.forwarder_id == request.overrideForwarderId
+        val selectedRate: ScoredRate =
+            if (request.overrideForwarderId != null) {
+                scoredRates.first { it.forwarder_id == request.overrideForwarderId }
+            } else {
+                scoredRates.first { it.recommended }
             }
+
+        val url =
+            "$baseUrl?action=createBooking" +
+                "&lane_key=${request.laneKey}" +
+                "&forwarder_id=${selectedRate.forwarder_id}" +
+                "&rate_id=${selectedRate.id}" +
+                "&asn_ids=${request.asnIds.joinToString(",")}" +
+                "&total_volume_cbm=$totalCbm" +
+                "&created_by=system"
+
+        val response = webClient.get()
+            .uri(url)
+            .retrieve()
+            .bodyToMono(Map::class.java)
+            .block()
+
+        @Suppress("UNCHECKED_CAST")
+        return response as? Map<String, Any?> ?: mapOf("success" to true)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun getBookings(vendorCode: String?): List<Map<String, Any>> {
+
+        val uri = if (vendorCode.isNullOrBlank()) {
+            "$baseUrl?action=bookings"
         } else {
-            scoredRates.first { it.recommended }
+            "$baseUrl?action=bookings&vendor_code=$vendorCode"
         }
 
+        val response = webClient.get()
+            .uri(uri)
+            .retrieve()
+            .bodyToMono(Array<Any>::class.java) // ✅ no generics
+            .block()
 
-    // Build URL manually (simple and stable)
-    val url =
-        "$baseUrl?action=createBooking" +
-        "&lane_key=${request.laneKey}" +
-        "&forwarder_id=${selectedRate.forwarder_id}" +
-        "&rate_id=${selectedRate.id}" +
-        "&asn_ids=${request.asnIds.joinToString(",")}" +
-        "&total_volume_cbm=$totalCbm" +
-        "&created_by=system"
-
-    val response = webClient.get()
-        .uri(url)
-        .retrieve()
-        .bodyToMono(Map::class.java)
-        .block()
-
-    return response as? Map<String, Any?> ?: mapOf("success" to true)
+        return response
+            ?.map { it as Map<String, Any> }
+            ?: emptyList()
     }
 }

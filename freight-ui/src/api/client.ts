@@ -49,4 +49,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+getBookings: (vendorCode: string) =>
+        request(`/bookings?vendorCode=${vendorCode}`),  
 };

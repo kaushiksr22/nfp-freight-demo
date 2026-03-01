@@ -7,11 +7,22 @@ export default function AdminDashboard() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [bookingsLoading, setBookingsLoading] = useState(true);
+
   useEffect(() => {
+    // Admin = fetch all shipments by passing empty vendorCode
     api
-      .getShipments() // empty = fetch all
+      .getShipments("")
       .then((data) => setShipments(data || []))
       .finally(() => setLoading(false));
+
+    // Admin = fetch all bookings by passing empty vendorCode
+    api
+      .getBookings("")
+      .then((data) => setBookings(data || []))
+      .catch(() => setBookings([]))
+      .finally(() => setBookingsLoading(false));
   }, []);
 
   const handleLogout = () => {
@@ -26,9 +37,7 @@ export default function AdminDashboard() {
           <h1 className="text-3xl font-semibold text-slate-900">
             Admin Dashboard
           </h1>
-          <p className="text-slate-500 mt-1">
-            All eligible shipments
-          </p>
+          <p className="text-slate-500 mt-1">All eligible shipments</p>
         </div>
 
         <button
@@ -39,13 +48,12 @@ export default function AdminDashboard() {
         </button>
       </div>
 
+      {/* Shipments */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-6 text-slate-500">Loading shipments...</div>
         ) : shipments.length === 0 ? (
-          <div className="p-6 text-slate-500">
-            No shipments available.
-          </div>
+          <div className="p-6 text-slate-500">No shipments available.</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-100 text-slate-600">
@@ -71,6 +79,31 @@ export default function AdminDashboard() {
               ))}
             </tbody>
           </table>
+        )}
+      </div>
+
+      {/* Bookings */}
+      <div className="mt-12 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+        <h3 className="text-lg font-semibold mb-4 text-slate-900">
+          Booking History
+        </h3>
+
+        {bookingsLoading ? (
+          <div className="text-sm text-slate-500">Loading bookings...</div>
+        ) : bookings.length === 0 ? (
+          <div className="text-sm text-slate-500">No bookings found.</div>
+        ) : (
+          <ul className="space-y-2 text-sm text-slate-700">
+            {bookings.map((b, idx) => (
+              <li key={b.booking_id || idx} className="border-b pb-2">
+                <div className="font-medium">{b.booking_id || "Booking"}</div>
+                <div className="text-slate-500">
+                  Status: {b.status || "-"} | Vendor: {b.created_by || "-"} | ASN(s):{" "}
+                  {b.asn_ids || "-"}
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>
