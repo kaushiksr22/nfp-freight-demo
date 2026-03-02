@@ -44,6 +44,22 @@ export default function VendorDashboard() {
     );
   }
 
+  if (user.role === "vendor" && user.program_type === "self-vddp") {
+    return (
+      <div className="min-h-screen bg-slate-50 p-10">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8">
+          <h2 className="text-xl font-semibold text-slate-900 mb-4">
+            Self-Managed Vendor
+          </h2>
+          <p className="text-slate-600">
+            You are enrolled under Self-VDDP program. 
+            Please submit MAWB, in the VDDP freight form.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const vendorCodeForShipments =
     user.role === "vendor" ? user.vendor_code || "" : "";
 
@@ -93,21 +109,46 @@ export default function VendorDashboard() {
   // ✅ FIXED CONTINUE
   const handleContinue = async () => {
     if (selected.length === 0) return;
-
-    const firstShipment = shipments.find(
-      (s) => s.asn_id === selected[0]
+  
+    const selectedShipments = shipments.filter((s) =>
+      selected.includes(s.asn_id)
     );
-    if (!firstShipment) return;
-
+  
+    // Lane validation
+    const laneSet = new Set(selectedShipments.map((s) => s.lane_key));
+    if (laneSet.size > 1) {
+      alert("Selected ASNs must belong to the same lane.");
+      return;
+    }
+  
+    // Pickup date window validation
+    const pickupDates = selectedShipments.map((s) => {
+      const [day, month, year] = s.pickup_date.split("-");
+      return new Date(`${year}-${month}-${day}`);
+    });
+  
+    const minDate = new Date(Math.min(...pickupDates.map(d => d.getTime())));
+    const maxDate = new Date(Math.max(...pickupDates.map(d => d.getTime())));
+  
+    const diffDays =
+      (maxDate.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24);
+  
+    if (diffDays > 3) {
+      alert("Pickup dates must be within a 3-day window for consolidation.");
+      return;
+    }
+  
+    const firstShipment = selectedShipments[0];
+  
     const scoredRates = await api.getScoredRates(firstShipment.lane_key);
     if (!scoredRates || scoredRates.length === 0) return;
-
+  
     setRates(scoredRates);
     setSelectedForwarder(
       scoredRates.find((r) => r.recommended)?.forwarder_id ||
         scoredRates[0].forwarder_id
     );
-
+  
     setCurrentStep(2);
   };
 
@@ -129,6 +170,7 @@ export default function VendorDashboard() {
 
       const bookingId = response?.booking_id || response?.bookingId || "";
       setCreatedBookingId(bookingId);
+      setSelected([]); // clear selections
 
       setCurrentStep(3);
       await fetchShipments();
