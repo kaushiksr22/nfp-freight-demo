@@ -1,4 +1,4 @@
-const BASE_URL = "http://localhost:8080/api";
+const BASE_URL = "https://nfp-freight-demo.onrender.com";
 
 async function request<T>(
   path: string,
