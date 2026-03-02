@@ -1,6 +1,8 @@
 package com.quince.freight.controller
 
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -28,12 +30,19 @@ class LoginController(
     fun login(
         @RequestParam email: String,
         @RequestParam password: String
-    ): Any? {
+    ): ResponseEntity<Any> {
 
-        return webClient.get()
+        val response = webClient.get()
             .uri("$baseUrl?action=login&email=$email&password=$password")
             .retrieve()
-            .bodyToMono(Any::class.java)
+            .bodyToMono(Map::class.java)
             .block()
+
+        return if (response != null) {
+            ResponseEntity.ok(response)
+        } else {
+            ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Invalid credentials"))
+        }
     }
 }

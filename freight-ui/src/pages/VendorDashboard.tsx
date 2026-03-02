@@ -28,14 +28,12 @@ export default function VendorDashboard() {
   const [selectedForwarder, setSelectedForwarder] = useState<string | null>(null);
 
   const [bookingLoading, setBookingLoading] = useState(false);
-
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [createdBookingId, setCreatedBookingId] = useState<string>("");
 
   const [bookings, setBookings] = useState<any[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
 
-  // If no user, avoid crashing — App.tsx should redirect to Login anyway
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50 p-10">
@@ -46,7 +44,8 @@ export default function VendorDashboard() {
     );
   }
 
-  const vendorCodeForShipments = user.role === "vendor" ? (user.vendor_code || "") : "";
+  const vendorCodeForShipments =
+    user.role === "vendor" ? user.vendor_code || "" : "";
 
   const selectedShipments = useMemo(
     () => shipments.filter((s) => selected.includes(s.asn_id)),
@@ -71,32 +70,36 @@ export default function VendorDashboard() {
   };
 
   const fetchBookings = async () => {
-    // For vendor: filter by vendor_code; for admin: pass ""
-    const vendorCodeForBookings = user.role === "vendor" ? (user.vendor_code || "") : "";
+    const vendorCodeForBookings =
+      user.role === "vendor" ? user.vendor_code || "" : "";
+
     setBookingsLoading(true);
     try {
       const data = await api.getBookings(vendorCodeForBookings);
       setBookings(data || []);
     } catch {
-      setBookings([]); // don’t crash UI if bookings endpoint fails
+      setBookings([]);
     } finally {
       setBookingsLoading(false);
     }
   };
 
-  // Initial load
   useEffect(() => {
     fetchShipments();
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ✅ FIXED CONTINUE
   const handleContinue = async () => {
-    if (selectedShipments.length === 0) return;
+    if (selected.length === 0) return;
 
-    const lane = selectedShipments[0].lane_key;
-    const scoredRates = await api.getScoredRates(lane);
+    const firstShipment = shipments.find(
+      (s) => s.asn_id === selected[0]
+    );
+    if (!firstShipment) return;
 
+    const scoredRates = await api.getScoredRates(firstShipment.lane_key);
     if (!scoredRates || scoredRates.length === 0) return;
 
     setRates(scoredRates);
@@ -108,18 +111,18 @@ export default function VendorDashboard() {
     setCurrentStep(2);
   };
 
-  const handleBackToStep1 = () => {
-    setCurrentStep(1);
-  };
-
   const handleConfirmBooking = async () => {
-    if (!selectedForwarder || selectedShipments.length === 0) return;
+    if (!selectedForwarder || selected.length === 0) return;
 
     setBookingLoading(true);
-
     try {
+      const firstShipment = shipments.find(
+        (s) => s.asn_id === selected[0]
+      );
+      if (!firstShipment) return;
+
       const response = await api.createBooking({
-        laneKey: selectedShipments[0].lane_key,
+        laneKey: firstShipment.lane_key,
         asnIds: selected,
         overrideForwarderId: selectedForwarder,
       });
@@ -128,8 +131,6 @@ export default function VendorDashboard() {
       setCreatedBookingId(bookingId);
 
       setCurrentStep(3);
-
-      // Refresh both shipments + bookings after booking
       await fetchShipments();
       await fetchBookings();
     } finally {
@@ -143,7 +144,6 @@ export default function VendorDashboard() {
     setSelectedForwarder(null);
     setCreatedBookingId("");
     setCurrentStep(1);
-
     await fetchShipments();
     await fetchBookings();
   };
@@ -155,7 +155,6 @@ export default function VendorDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-10">
-      {/* Header */}
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-semibold text-slate-900">
@@ -163,7 +162,9 @@ export default function VendorDashboard() {
               ? "Admin Dashboard"
               : `${user.vendor_name || "Vendor"} Dashboard`}
           </h1>
-          <p className="text-slate-500 mt-1">Shipments ready for pickup</p>
+          <p className="text-slate-500 mt-1">
+            Shipments ready for pickup
+          </p>
         </div>
 
         <button
@@ -194,7 +195,7 @@ export default function VendorDashboard() {
           selectedForwarder={selectedForwarder}
           setSelectedForwarder={setSelectedForwarder}
           onConfirm={handleConfirmBooking}
-          onBack={handleBackToStep1}
+          onBack={() => setCurrentStep(1)}
           bookingLoading={bookingLoading}
         />
       )}
@@ -212,7 +213,6 @@ export default function VendorDashboard() {
         />
       )}
 
-      {/* Booking History (from backend) */}
       <div className="mt-12 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
         <h3 className="text-lg font-semibold mb-4 text-slate-900">
           Booking History

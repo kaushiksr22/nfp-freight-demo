@@ -51,6 +51,7 @@ export default function BookingStep1({
             <tbody>
               {shipments.map((s) => {
                 const isFading = fadingRows.includes(s.asn_id);
+
                 return (
                   <tr
                     key={s.asn_id}
@@ -66,8 +67,8 @@ export default function BookingStep1({
                       />
                     </td>
                     <td className="p-4">{s.asn_id}</td>
-                    <td className="p-4">{s.origin_city}</td>
-                    <td className="p-4">{s.destination_id}</td>
+                    <td className="p-4">{(s as any).from_port || "-"}</td>
+                    <td className="p-4">{(s as any).to_port || "-"}</td>
                     <td className="p-4">{s.lane_key}</td>
                     <td className="p-4">{s.volume_cbm}</td>
                   </tr>
